@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/foodcount",
+      "schedule": "30 2 * * *"
+    }
+  ]
+}
