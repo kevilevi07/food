@@ -4,5 +4,8 @@
   "type": "module",
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "genkey": "node scripts/genkey.js"
   }
 }
