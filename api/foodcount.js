@@ -10,26 +10,44 @@
  *   PUT  {api}/food-mapping/updatefoodmapping                 -> later edits
  *
  * ---------------------------------------------------------------------------
- * Adding a user = adding three environment variables in Project Settings ->
- * Environment Variables. <SLUG> is any name you like, A-Z / 0-9 / _ :
+ * Adding a user = adding environment variables in Project Settings ->
+ * Environment Variables, then redeploying. Nothing else. <SLUG> is any name you
+ * like, A-Z / 0-9 / _ :
  *
  *   FOODAPP_USER_<SLUG>   login email        e.g. FOODAPP_USER_ANURAG
  *   FOODAPP_PASS_<SLUG>   password           e.g. FOODAPP_PASS_ANURAG
  *   FOODAPP_KEY_<SLUG>    that user's secret e.g. foodcount-9f3a2b7c4e1d8a6f
  *   FOODAPP_TYPE_<SLUG>   optional, what the daily cron books for them
  *                         (all | 1 | 2 | 3 | 1,2 | none)   default: all
+ *   FOODAPP_AT_<SLUG>     optional, the IST time their count is booked, HH:MM
+ *                         ("none" = no cron at all)   default: FOODAPP_AT, 08:00
  *
  * Then that user's personal URL is:
  *
- *   https://countw.vercel.app/api/foodcount?key=foodcount-9f3a2b7c4e1d8a6f
- *   https://countw.vercel.app/api/foodcount?key=<their key>&type=2
+ *   https://foodauto.vercel.app/api/foodcount?key=foodcount-9f3a2b7c4e1d8a6f
+ *   https://foodauto.vercel.app/api/foodcount?key=<their key>&type=2
  *
  *   type=1 breakfast, 2 lunch, 3 dinner, all = everything, none = cancel all.
  *   Combine with commas: type=1,2 . Names work too: type=lunch .
  *   Meals left out of `type` are explicitly set to "no".
  *
+ * Nothing here is scheduled by hand. vercel.mjs runs at build time and turns
+ * those FOODAPP_AT_<SLUG> variables into the project's cron list (the arithmetic
+ * lives in scripts/crons.mjs; "npm run crons" prints what the next deployment
+ * will schedule). The entries it writes call this endpoint like so:
+ *
+ *   { "path": "/api/foodcount?user=RAVI,SHERLOCK", "schedule": "30 2 * * *" }
+ *   { "path": "/api/foodcount?user=SRI",           "schedule": "0 4 * * *"  }
+ *
+ * A cron request carries CRON_SECRET, which on its own means "every registered
+ * user". ?user=<SLUG,...> narrows the run to the people named; ?except=<SLUG,...>
+ * runs everybody else. Neither is honoured for a personal ?key= request - that
+ * always runs exactly its owner, so nobody can book or cancel somebody else's
+ * meals by editing their link.
+ *
  * Global environment variables:
  *   CRON_SECRET    admin/cron secret - a request carrying this runs EVERY user
+ *   FOODAPP_AT     optional, the default IST booking time   default: 08:00
  *   SKIP_WEEKENDS  optional, "false" to also submit on Sat/Sun
  *
  * Legacy single-user vars still work and register as the user "DEFAULT":
@@ -202,6 +220,58 @@ function mealsFor(user, params) {
     lunch: !params.has('no-lunch'),
     dinner: !params.has('no-dinner'),
   };
+}
+
+// ---------------------------------------------------------------------------
+// ?user= / ?except= - which people this run covers
+//
+// A cron request carries CRON_SECRET, which on its own means "every registered
+// user". That is fine for one shared time; giving somebody their own time means
+// telling a cron entry who it is for:
+//
+//   { "path": "/api/foodcount?user=SRI&type=2", "schedule": "0 4 * * *"  }
+//   { "path": "/api/foodcount?except=SRI",      "schedule": "30 2 * * *" }
+//
+// so SRI books lunch at 09:30 IST while everybody else keeps the 08:00 IST run,
+// and nobody is booked twice.
+//
+// Both filters are only honoured for a CRON_SECRET-scoped run. A personal key
+// can never use them to book for somebody else.
+// ---------------------------------------------------------------------------
+
+function parseSlugs(value) {
+  return String(value ?? '')
+    .split(/[,+\s]+/)
+    .filter(Boolean)
+    .map((slug) => slug.toUpperCase());
+}
+
+function selectUsers(auth, users, params) {
+  const filtered = params.has('user') || params.has('except');
+
+  if (auth.scope !== 'all' || !filtered) {
+    return { matched: auth.matched, scope: auth.scope, only: [], except: [], unknown: [] };
+  }
+
+  // getAll, not get: ?user=SRI&user=RAVI must mean both, not silently just SRI.
+  const only = parseSlugs(params.getAll('user').join(','));
+  const except = parseSlugs(params.getAll('except').join(','));
+
+  // "?user=" with nothing after it is a typo, and reading it as "everybody"
+  // would book the whole office at one person's time. Refuse it instead.
+  if (!only.length && !except.length) {
+    return { matched: [], scope: auth.scope, only, except, unknown: [], blank: true };
+  }
+
+  const matched = users.filter((user) => {
+    const slug = user.slug.toUpperCase();
+    return (!only.length || only.includes(slug)) && !except.includes(slug);
+  });
+
+  const known = new Set(users.map((user) => user.slug.toUpperCase()));
+  const unknown = [...new Set([...only, ...except])].filter((slug) => !known.has(slug));
+
+  return { matched, scope: only.length ? 'selected' : 'all-except', only, except, unknown };
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +469,10 @@ export default async function handler(req, res) {
   const params = new URL(req.url, 'http://localhost').searchParams;
   const dryRun = params.has('dry-run');
 
+  // Every per-user cron entry shares this one path, so the log has to say which
+  // schedule fired. Vercel sets this header on every cron invocation.
+  const cronSchedule = req.headers['x-vercel-cron-schedule'];
+
   const { users, problems } = loadUsers();
 
   if (!users.length) {
@@ -416,8 +490,45 @@ export default async function handler(req, res) {
     return res.status(auth.status).json({ ok: false, error: auth.error });
   }
 
-  // Vercel Hobby cron only supports a daily schedule, so the weekday check
-  // lives here rather than in the cron expression.
+  const { matched, scope, only, except, unknown, blank } = selectUsers(auth, users, params);
+
+  if (blank) {
+    return res.status(400).json({
+      ok: false,
+      error: 'This request carried ?user= or ?except= but named nobody. Drop the'
+           + ' parameter to run every user, or name at least one slug - an empty'
+           + ' filter is a typo, not a request to book the whole office.',
+    });
+  }
+
+  if (unknown.length) {
+    problems.push(`?user= / ?except= named ${unknown.join(', ')}, which is not a registered`
+                + ' user - check the slug matches its FOODAPP_KEY_<SLUG> variable.');
+  }
+
+  if (!matched.length) {
+    // A cron pointing at a slug that does not exist has to fail loudly, or one
+    // typo silently books nobody for months. Excluding everybody is a
+    // legitimate, if pointless, request, so that one stays a 200.
+    const empty = { ok: !only.length, scope, ran: 0, failed: 0, users: [] };
+
+    if (only.length && except.length) {
+      empty.error = `?user=${only.join(',')} and ?except=${except.join(',')} cancel each`
+                  + ' other out, so this run would book nobody.';
+    } else if (only.length) {
+      empty.error = `No registered user matches ?user=${only.join(',')}.`
+                  + ` Known users: ${users.map((user) => user.slug).join(', ')}.`;
+    }
+
+    if (problems.length) empty.problems = problems;
+    if (cronSchedule) empty.cron = cronSchedule;
+
+    return res.status(only.length ? 404 : 200).json(empty);
+  }
+
+  // The weekday check lives here rather than in the cron expression: it then
+  // also covers somebody opening their personal link on a Saturday, and it can
+  // be turned off with SKIP_WEEKENDS without a redeploy.
   const weekday = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
     weekday: 'short',
@@ -426,18 +537,25 @@ export default async function handler(req, res) {
   const skipWeekends = process.env.SKIP_WEEKENDS !== 'false';
 
   if (skipWeekends && (weekday === 'Sat' || weekday === 'Sun') && !params.has('force')) {
-    const line = `Skipping - it is ${weekday} in IST. Add &force to override, or set SKIP_WEEKENDS=false.`;
+    const line = `Skipping ${matched.map((user) => user.slug).join(', ')} - it is ${weekday}`
+               + ' in IST. Add &force to override, or set SKIP_WEEKENDS=false.';
     console.log(line);
-    return res.status(200).json({ ok: true, skipped: true, log: [line] });
+
+    const skippedBody = { ok: true, skipped: true, scope, log: [line] };
+
+    if (problems.length) skippedBody.problems = problems;
+    if (cronSchedule) skippedBody.cron = cronSchedule;
+
+    return res.status(200).json(skippedBody);
   }
 
-  const results = await Promise.all(auth.matched.map((user) => runUser(user, params, dryRun)));
+  const results = await Promise.all(matched.map((user) => runUser(user, params, dryRun)));
 
   const failed = results.filter((result) => !result.ok);
 
   const body = {
     ok: failed.length === 0,
-    scope: auth.scope,
+    scope,
     dryRun,
     ran: results.length,
     failed: failed.length,
@@ -445,6 +563,7 @@ export default async function handler(req, res) {
   };
 
   if (problems.length) body.problems = problems;
+  if (cronSchedule) body.cron = cronSchedule;
   if (results.length === 1) body.log = results[0].log; // convenience for a single user
 
   // A partial failure across many users is still a 200 so the cron log keeps the

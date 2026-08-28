@@ -6,6 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "genkey": "node scripts/genkey.js"
+    "genkey": "node scripts/genkey.js",
+    "crons": "node scripts/crons.mjs"
   }
 }
