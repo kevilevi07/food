@@ -24,5 +24,5 @@ console.log(`  vercel env add FOODAPP_PASS_${slug} production   # their password
 console.log(`  vercel env add FOODAPP_KEY_${slug} production    # ${key}`);
 console.log(`  vercel env add FOODAPP_TYPE_${slug} production   # optional: all | 1 | 2 | 3 | 1,2 | none`);
 console.log('\nThen redeploy, and their link is:');
-console.log(`  https://countw.vercel.app/api/foodcount?key=${key}`);
-console.log(`  https://countw.vercel.app/api/foodcount?key=${key}&type=2`);
+console.log(`  https://foodauto.vercel.app/api/foodcount?key=${key}`);
+console.log(`  https://foodauto.vercel.app/api/foodcount?key=${key}&type=2`);
