@@ -3,12 +3,19 @@
  * the users, so adding somebody never means editing a config file.
  *
  *   FOODAPP_USER_<SLUG>   their email - this is what registers them
- *   FOODAPP_AT_<SLUG>     the IST time their food count is booked, "HH:MM"
- *                         "none" (or off / manual / -) = no cron, link only
- *   FOODAPP_AT            the default IST time for anybody with no FOODAPP_AT_<SLUG>
+ *   FOODAPP_AT_<SLUG>     when their food count is booked. Either an IST clock
+ *                         time, "HH:MM" (e.g. 09:00), or a raw 5-field UTC cron
+ *                         expression (e.g. "30 3 * * *"). "none" (or off /
+ *                         manual / -) = no cron, personal link only.
+ *   FOODAPP_AT            the default for anybody with no FOODAPP_AT_<SLUG>
  *
- * People who share a time share one cron entry, so ten colleagues at 08:00 cost
- * one of the project's 100 entries, not ten.
+ * People who land on the same schedule share one cron entry, so ten colleagues
+ * at 08:00 cost one of the project's 100 entries, not ten.
+ *
+ * A value it cannot understand never fails the deployment: the person is booked
+ * at the default time instead and a warning is written to the build log. That
+ * matters because this runs at config-compile time - throwing here would stop
+ * the whole site from deploying, not just drop one cron.
  *
  *   node scripts/crons.mjs      prints what the next deployment would schedule
  */
@@ -21,23 +28,53 @@ const MAX_PATH = 512;                 // Vercel's limit on a cron path
 const IST_OFFSET = 5 * 60 + 30;       // IST is UTC+5:30
 const NO_CRON = new Set(['none', 'off', 'no', 'manual', '-']);
 
-/** "09:30" IST -> "0 4 * * *", the UTC expression Vercel actually schedules. */
-export function istToUtcCron(time, who = '') {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(String(time).trim());
-  const hour = match ? Number(match[1]) : NaN;
-  const minute = match ? Number(match[2]) : NaN;
+/**
+ * Turn one FOODAPP_AT value into { schedule, utc }. Accepts an IST "HH:MM" and
+ * converts it to the UTC cron Vercel schedules in, or takes a raw 5-field cron
+ * expression as-is. Throws only on something that is neither.
+ */
+export function istToUtcCron(value, who = '') {
+  const time = String(value).trim();
 
-  if (!match || hour > 23 || minute > 59) {
-    throw new Error(`FOODAPP_AT${who ? `_${who}` : ''}="${time}" is not an IST time.`
-                  + ' Use HH:MM (e.g. 09:30), or "none" for no cron at all.');
+  const clock = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (clock) {
+    const hour = Number(clock[1]);
+    const minute = Number(clock[2]);
+    if (hour <= 23 && minute <= 59) {
+      const utc = (hour * 60 + minute - IST_OFFSET + 24 * 60) % (24 * 60);
+      return { schedule: `${utc % 60} ${Math.floor(utc / 60)} * * *`, utc };
+    }
   }
 
-  const utc = (hour * 60 + minute - IST_OFFSET + 24 * 60) % (24 * 60);
+  // A raw cron expression: five fields of digits / * , - / only. Someone who
+  // pastes "30 3 * * *" (what this very function prints) gets what they meant.
+  const fields = time.split(/\s+/);
+  if (fields.length === 5 && fields.every((f) => /^[\d*,/-]+$/.test(f))) {
+    const [min, hour] = fields;
+    // Sort by wall-clock when the first two fields are plain numbers; anything
+    // fancier just sorts last, which only affects display order.
+    const utc = /^\d+$/.test(min) && /^\d+$/.test(hour)
+      ? Number(hour) * 60 + Number(min)
+      : 24 * 60;
+    return { schedule: time, utc };
+  }
 
-  return { schedule: `${utc % 60} ${Math.floor(utc / 60)} * * *`, utc };
+  throw new Error(`FOODAPP_AT${who ? `_${who}` : ''}="${value}" is neither an IST`
+                + ' time (HH:MM, e.g. 09:00) nor a 5-field cron expression'
+                + ' (e.g. "30 3 * * *"), and "none" turns the cron off.');
 }
 
-/** Every registered user and the IST time they want, read from the environment. */
+/** The default schedule, resolved once and guaranteed to parse. */
+function safeFallback(fallback) {
+  try {
+    return { at: fallback, ...istToUtcCron(fallback) };
+  } catch (error) {
+    console.warn(`[crons] ${error.message} Falling back to ${DEFAULT_AT} IST.`);
+    return { at: DEFAULT_AT, ...istToUtcCron(DEFAULT_AT) };
+  }
+}
+
+/** Every registered user and the time they want, read from the environment. */
 export function readSchedule(env = process.env) {
   const fallback = (env.FOODAPP_AT || DEFAULT_AT).trim();
   const people = [];
@@ -57,26 +94,38 @@ export function readSchedule(env = process.env) {
 
 export function buildCrons(env = process.env) {
   const { people, fallback } = readSchedule(env);
+  const base = safeFallback(fallback);
 
   // A build that cannot see the user variables (a preview deploy, or the very
   // first one) still gets a working cron: everybody, at the default time.
-  if (!people.length) return [{ path: PATH, schedule: istToUtcCron(fallback).schedule }];
+  if (!people.length) return [{ path: PATH, schedule: base.schedule }];
 
-  const byTime = new Map();
+  // Group by the resulting schedule, not the raw value, so "09:00" and its
+  // equivalent "30 3 * * *" land in the same entry.
+  const bySchedule = new Map();
 
   for (const person of people) {
     if (NO_CRON.has(person.at.toLowerCase())) continue;
 
-    istToUtcCron(person.at, person.slug);        // fail the build on a bad time
+    let parsed;
+    try {
+      parsed = istToUtcCron(person.at, person.slug);
+    } catch (error) {
+      // Never fail the whole build over one bad value - book them at the default
+      // and make the mistake visible in the build log.
+      console.warn(`[crons] ${error.message} Booking ${person.slug} at the`
+                 + ` default ${base.at} instead.`);
+      parsed = { schedule: base.schedule, utc: base.utc };
+    }
 
-    if (!byTime.has(person.at)) byTime.set(person.at, []);
-    byTime.get(person.at).push(person.slug);
+    const group = bySchedule.get(parsed.schedule) || { utc: parsed.utc, slugs: [] };
+    group.slugs.push(person.slug);
+    bySchedule.set(parsed.schedule, group);
   }
 
   const entries = [];
 
-  for (const [at, slugs] of byTime) {
-    const { schedule, utc } = istToUtcCron(at);
+  for (const [schedule, { utc, slugs }] of bySchedule) {
     let chunk = [];
 
     const flush = () => {
@@ -107,12 +156,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   if (!people.length) {
     console.log('No FOODAPP_USER_<SLUG> variables in this shell, so this is the fallback');
-    console.log(`the build would use if it could not see them either (${fallback} IST):\n`);
+    console.log(`the build would use if it could not see them either (${fallback}):\n`);
   } else {
-    console.log(`${people.length} user(s), default ${fallback} IST:\n`);
+    console.log(`${people.length} user(s), default ${fallback}:\n`);
     for (const person of people) {
       const off = NO_CRON.has(person.at.toLowerCase());
-      console.log(`  ${person.slug.padEnd(12)} ${off ? 'no cron - personal link only' : `${person.at} IST`}`);
+      console.log(`  ${person.slug.padEnd(12)} ${off ? 'no cron - personal link only' : person.at}`);
     }
     console.log('');
   }

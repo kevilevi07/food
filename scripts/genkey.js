@@ -47,10 +47,10 @@ console.log(`  vercel env add FOODAPP_KEY_${slug} production    # ${key}`);
 console.log(`  vercel env add FOODAPP_TYPE_${slug} production   # optional: all | 1 | 2 | 3 | 1,2 | none`);
 
 if (at) {
-  console.log(`  vercel env add FOODAPP_AT_${slug} production     # ${at}`
-            + `   -> cron "${schedule}" UTC`);
+  console.log(`  vercel env add FOODAPP_AT_${slug} production     # enter: ${at}`
+            + `   (${at} IST = "${schedule}" UTC)`);
 } else {
-  console.log(`  vercel env add FOODAPP_AT_${slug} production     # optional: 09:30 to book them`);
+  console.log(`  vercel env add FOODAPP_AT_${slug} production     # optional: enter 09:30 to book them`);
   console.log('                                                  # at their own time, "none" for no cron');
 }
 

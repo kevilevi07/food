@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Finstein Food Count — Add user</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #1a2027; --muted: #5b6672;
+    --line: #dde3ea; --accent: #1f7a4d; --accent-ink: #ffffff;
+    --code-bg: #0f1720; --code-ink: #e6edf3; --warn-bg: #fff6e5; --warn-line: #f0d38a;
+    --field-bg: #ffffff; --ok: #1f7a4d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1216; --card: #161c22; --ink: #e6edf3; --muted: #9aa7b3;
+      --line: #263039; --accent: #35a06a; --accent-ink: #071009;
+      --code-bg: #0b1017; --code-ink: #e6edf3; --warn-bg: #2a2413; --warn-line: #5c4d1e;
+      --field-bg: #0f151b; --ok: #4cc38a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
+  header h1 { font-size: 22px; margin: 0 0 4px; }
+  header p { margin: 0 0 22px; color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px; margin-bottom: 18px;
+  }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  label .hint { font-weight: 400; color: var(--muted); }
+  input[type=text], input[type=email], input[type=password], input[type=time] {
+    width: 100%; padding: 10px 12px; font-size: 15px; color: var(--ink);
+    background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 200px; }
+  .meals { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .meals label {
+    display: inline-flex; align-items: center; gap: 7px; margin: 0;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--field-bg); cursor: pointer; font-weight: 500;
+  }
+  .meals input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .inline { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; margin-top: 10px; }
+  .btn {
+    appearance: none; border: 0; border-radius: 8px; padding: 11px 18px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink);
+  }
+  .btn:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn.small { padding: 5px 10px; font-size: 13px; }
+  .actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  .err { color: #c0392b; font-weight: 600; margin-top: 12px; min-height: 1.2em; }
+  @media (prefers-color-scheme: dark) { .err { color: #ff8a80; } }
+  #out { display: none; }
+  .out-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .out-head h2 { font-size: 16px; margin: 22px 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  pre {
+    margin: 0; background: var(--code-bg); color: var(--code-ink);
+    border-radius: 8px; padding: 14px 14px; overflow-x: auto;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre; tab-size: 2;
+  }
+  .block { position: relative; margin-bottom: 6px; }
+  .copy { position: absolute; top: 8px; right: 8px; }
+  .warn {
+    background: var(--warn-bg); border: 1px solid var(--warn-line);
+    border-radius: 8px; padding: 12px 14px; margin-top: 18px; font-size: 14px;
+  }
+  .warn b { display: block; margin-bottom: 3px; }
+  code.k { background: rgba(127,127,127,.16); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Finstein Food Count — Add user</h1>
+    <p>Fill this in, hit <b>Generate</b>, and paste the result into Vercel. Nothing is
+       sent anywhere — the key is made in your browser.</p>
+  </header>
+
+  <form class="card" id="form" autocomplete="off">
+    <div class="row">
+      <div>
+        <label for="slug">Slug <span class="hint">— the name in the variables, A–Z 0–9 _</span></label>
+        <input id="slug" type="text" placeholder="SHERLOCK" spellcheck="false" />
+      </div>
+      <div>
+        <label for="email">Login email</label>
+        <input id="email" type="email" placeholder="sherlock@finstein.ai" spellcheck="false" />
+      </div>
+    </div>
+
+    <label for="password">Password</label>
+    <div class="row">
+      <div style="flex: 3 1 260px;">
+        <input id="password" type="password" placeholder="their food-app password" />
+      </div>
+      <div style="flex: 0 0 auto; display: flex; gap: 8px; align-items: center;">
+        <button type="button" class="btn secondary small" id="togglePw">Show</button>
+        <button type="button" class="btn secondary small" id="genPw">Suggest</button>
+      </div>
+    </div>
+
+    <label>Default meals <span class="hint">— what the daily cron books when the link has no <code class="k">type</code></span></label>
+    <div class="meals" id="meals">
+      <label><input type="checkbox" value="1" checked /> Breakfast</label>
+      <label><input type="checkbox" value="2" checked /> Lunch</label>
+      <label><input type="checkbox" value="3" checked /> Dinner</label>
+    </div>
+    <div class="meta">All three ticked is stored as <code class="k">all</code>.</div>
+
+    <label class="inline"><input type="checkbox" id="ownTime" /> Give this user their own booking time</label>
+    <div class="row" id="timeRow" style="display:none;">
+      <div style="flex: 0 0 160px;">
+        <label for="attime" style="margin-top:10px;">Time (IST)</label>
+        <input id="attime" type="time" value="08:00" />
+      </div>
+      <div style="align-self:end;">
+        <div class="meta" id="utcHint">= 02:30 UTC · cron <code class="k">30 2 * * *</code></div>
+      </div>
+    </div>
+    <div class="meta" id="sharedHint">Leave unticked to use the shared default time.</div>
+
+    <label for="base">Site URL <span class="hint">— for the personal links</span></label>
+    <input id="base" type="text" value="https://foodauto.vercel.app" spellcheck="false" />
+
+    <div class="actions">
+      <button type="submit" class="btn" id="generate">Generate</button>
+      <button type="button" class="btn secondary" id="reset">Clear</button>
+    </div>
+    <div class="err" id="err" role="alert"></div>
+  </form>
+
+  <div id="out">
+    <div class="card">
+      <div class="out-head"><h2 style="margin-top:0;">Personal links</h2></div>
+      <p class="sub">Line 1 books all defaults · line 2 books lunch only (<code class="k">type=2</code>) · line 3 collects at the counter (<code class="k">/api/scan</code>). Copy the one you want.</p>
+      <div class="block">
+        <button class="btn secondary small copy" data-copy="links">Copy</button>
+        <pre id="links"></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="out-head">
+        <h2 style="margin-top:0;">Paste into Vercel — bulk import</h2>
+      </div>
+      <p class="sub">Project → Settings → Environment Variables → <b>Import .env</b>, paste this, set environment to <b>Production</b>.</p>
+      <div class="block">
+        <button class="btn secondary small copy" data-copy="dotenv">Copy</button>
+        <pre id="dotenv"></pre>
+      </div>
+      <div class="warn">
+        <b>Then redeploy.</b> Environment variables only take effect on a <i>new</i> deployment — run
+        <code class="k">vercel --prod</code>, or push a commit, after importing.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="out-head"><h2 style="margin-top:0;">…or the CLI</h2></div>
+      <p class="sub">Each command prompts for the value shown in the comment.</p>
+      <div class="block">
+        <button class="btn secondary small copy" data-copy="cli">Copy</button>
+        <pre id="cli"></pre>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="another">Add another user</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var NAMES = { 1: "Breakfast", 2: "Lunch", 3: "Dinner" };
+
+  // --- slug: force A-Z 0-9 _ as you type ---------------------------------
+  $("slug").addEventListener("input", function () {
+    var s = this.selectionStart;
+    this.value = this.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    this.setSelectionRange(s, s);
+  });
+
+  // --- password show / suggest -------------------------------------------
+  $("togglePw").addEventListener("click", function () {
+    var p = $("password");
+    var show = p.type === "password";
+    p.type = show ? "text" : "password";
+    this.textContent = show ? "Hide" : "Show";
+  });
+  $("genPw").addEventListener("click", function () {
+    var chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var b = new Uint32Array(16), out = "";
+    crypto.getRandomValues(b);
+    for (var i = 0; i < b.length; i++) out += chars[b[i] % chars.length];
+    $("password").value = out;
+    $("password").type = "text";
+    $("togglePw").textContent = "Hide";
+  });
+
+  // --- own-time reveal + live IST->UTC hint -------------------------------
+  $("ownTime").addEventListener("change", function () {
+    $("timeRow").style.display = this.checked ? "flex" : "none";
+    $("sharedHint").style.display = this.checked ? "none" : "block";
+    if (this.checked) updateUtcHint();
+  });
+  $("attime").addEventListener("input", updateUtcHint);
+
+  function istToUtc(hhmm) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+    if (!m) return null;
+    var h = +m[1], min = +m[2];
+    if (h > 23 || min > 59) return null;
+    var utc = (h * 60 + min - (5 * 60 + 30) + 1440) % 1440;
+    return { hh: Math.floor(utc / 60), mm: utc % 60, cron: (utc % 60) + " " + Math.floor(utc / 60) + " * * *" };
+  }
+  function updateUtcHint() {
+    var u = istToUtc($("attime").value);
+    $("utcHint").innerHTML = u
+      ? "= " + pad(u.hh) + ":" + pad(u.mm) + " UTC · cron <code class=\"k\">" + u.cron + "</code>"
+      : "enter a valid HH:MM";
+  }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  // --- meals -> FOODAPP_TYPE value ---------------------------------------
+  function mealType() {
+    var ids = [].slice.call(document.querySelectorAll("#meals input:checked"))
+                .map(function (c) { return +c.value; }).sort();
+    if (ids.length === 0) return null;              // nothing ticked
+    if (ids.length === 3) return "all";
+    return ids.join(",");
+  }
+
+  function newKey() {
+    var b = new Uint8Array(8), hex = "";
+    crypto.getRandomValues(b);
+    for (var i = 0; i < b.length; i++) hex += (b[i] + 0x100).toString(16).slice(1);
+    return "foodcount-" + hex;
+  }
+
+  // --- generate ----------------------------------------------------------
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    $("err").textContent = "";
+
+    var slug = $("slug").value.trim().replace(/^_+|_+$/g, "");
+    var email = $("email").value.trim();
+    var password = $("password").value;
+    var type = mealType();
+
+    if (!slug) return fail("Enter a slug (e.g. SHERLOCK).");
+    if (!email) return fail("Enter the login email.");
+    if (!password) return fail("Enter a password (or hit Suggest).");
+    if (!type) return fail("Tick at least one meal.");
+
+    var own = $("ownTime").checked;
+    var at = $("attime").value.trim();
+    if (own && !istToUtc(at)) return fail("The booking time must be a valid HH:MM in IST.");
+
+    var key = newKey();
+    // Keep only the origin+path of the base URL, so a pasted "?..." or "#..." can't
+    // leak into the generated links.
+    var base = ($("base").value.trim() || "https://foodauto.vercel.app")
+                 .replace(/[?#].*$/, "").replace(/\/+$/, "");
+
+    // env var lines
+    var vars = [
+      ["FOODAPP_USER_" + slug, email],
+      ["FOODAPP_PASS_" + slug, password],
+      ["FOODAPP_KEY_" + slug, key],
+      ["FOODAPP_TYPE_" + slug, type]
+    ];
+    if (own) vars.push(["FOODAPP_AT_" + slug, at]);
+
+    // .env import: quote any value with whitespace/#/quotes/= so the password is
+    // never truncated or split on import.
+    setText("dotenv", vars.map(function (v) { return v[0] + "=" + envValue(v[1]); }).join("\n"));
+
+    // CLI: show the actual value in the comment (that is what the prompt wants),
+    // and never fail to surface a suggested password.
+    var note = { 0: email, 1: password, 2: key, 3: "meals: " + type, 4: at + " IST" };
+    var cli = vars.map(function (v, i) {
+      return "vercel env add " + v[0] + " production   # " + note[i];
+    }).join("\n");
+    cli += "\n\n# then apply it:\nvercel --prod";
+    setText("cli", cli);
+
+    // Clean URLs only - no inline comments, so copying a whole line is a valid URL.
+    var links = base + "/api/foodcount?key=" + key + "\n"
+              + base + "/api/foodcount?key=" + key + "&type=2\n"
+              + base + "/api/scan?key=" + key;
+    setText("links", links);
+
+    $("out").style.display = "block";
+    $("out").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  function fail(msg) { $("err").textContent = msg; }
+  function setText(id, text) { $(id).textContent = text; }
+
+  // Double-quote a .env value when it holds anything that a dotenv importer could
+  // trim, split, or read as a comment; escape backslashes and quotes inside.
+  function envValue(s) {
+    if (s === "" || /[\s#'"`\\=]/.test(s)) {
+      return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+    }
+    return s;
+  }
+
+  // --- copy buttons ------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest(".copy") : null;
+    if (!btn) return;
+    var text = $(btn.getAttribute("data-copy")).textContent;
+    var done = function () { var t = btn.textContent; btn.textContent = "Copied"; setTimeout(function () { btn.textContent = t; }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text, done, btn); });
+    } else { legacyCopy(text, done, btn); }
+  });
+  function legacyCopy(text, done, btn) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+    if (ok) { done(); }
+    else if (btn) { var t = btn.textContent; btn.textContent = "Press Ctrl+C"; setTimeout(function () { btn.textContent = t; }, 1600); }
+  }
+
+  // --- reset / another ---------------------------------------------------
+  function resetForm() {
+    $("form").reset();
+    [].forEach.call(document.querySelectorAll("#meals input"), function (c) { c.checked = true; });
+    $("ownTime").checked = false;
+    $("timeRow").style.display = "none";
+    $("sharedHint").style.display = "block";
+    $("attime").value = "08:00";
+    $("password").type = "password"; $("togglePw").textContent = "Show";
+    $("err").textContent = "";
+  }
+
+  $("reset").addEventListener("click", function () {
+    resetForm();
+    $("out").style.display = "none";
+  });
+
+  // "Add another" must start clean, or the previous user's meals / own-time carry
+  // over and mint the wrong variables for the next person.
+  $("another").addEventListener("click", function () {
+    resetForm();
+    $("out").style.display = "none";
+    $("slug").focus();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+})();
+</script>
+</body>
+</html>
