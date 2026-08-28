@@ -45,6 +45,7 @@ console.log(`  vercel env add FOODAPP_USER_${slug} production   # their login em
 console.log(`  vercel env add FOODAPP_PASS_${slug} production   # their password`);
 console.log(`  vercel env add FOODAPP_KEY_${slug} production    # ${key}`);
 console.log(`  vercel env add FOODAPP_TYPE_${slug} production   # optional: all | 1 | 2 | 3 | 1,2 | none`);
+<<<<<<< HEAD
 
 if (at) {
   console.log(`  vercel env add FOODAPP_AT_${slug} production     # ${at}`
@@ -60,3 +61,8 @@ console.log('  npm run crons');
 console.log('\nTheir personal link, usable any time regardless of the cron:');
 console.log(`  ${base}/api/foodcount?key=${key}`);
 console.log(`  ${base}/api/foodcount?key=${key}&type=2`);
+=======
+console.log('\nThen redeploy, and their link is:');
+console.log(`  https://foodauto.vercel.app/api/foodcount?key=${key}`);
+console.log(`  https://foodauto.vercel.app/api/foodcount?key=${key}&type=2`);
+>>>>>>> 2da2d129bd6739a7b37a8cfc7aedc283971a0f54
