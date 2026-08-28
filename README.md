@@ -175,6 +175,46 @@ else's meals by editing their link. Slugs are matched case-insensitively, and a
 booking nobody. A `?user=` or `?except=` that is present but empty answers `400`
 — reading it as "everybody" would book the whole office at one person's time.
 
+## Collecting the token — `/api/scan`
+
+Booking (`/api/foodcount`) reserves a meal; **collecting** it is a second step —
+at the counter the app's `/qr-scanner` reads a QR and the server marks your token
+`issued`. `/api/scan` does that same call without a camera.
+
+The counter QR is unsigned base64 of
+`{"date":"YYYY-MM-DD","foodTypeId":N,"foodTypeName":"…","name":"foodappfinstein"}`,
+so its value is fully determined by the date and the meal — `scan.js` rebuilds it
+and `PUT`s `/food-mapping/checkQrVerify`. It reuses the **same** users, keys, and
+`?user=` / `?except=` scoping as `/api/foodcount`:
+
+| URL | Scans |
+| --- | --- |
+| `…/api/scan?key=<their key>` | the meal current in IST right now |
+| `…/api/scan?key=<their key>&type=2` | lunch |
+| `…/api/scan?key=<their key>&type=all` | breakfast + lunch + dinner |
+| `…/api/scan?key=<their key>&dry-run` | builds the payload, sends nothing |
+| `…/api/scan?key=<CRON_SECRET>&user=SRI` | scans SRI (admin) |
+
+`FOODAPP_SCANTYPE_<SLUG>` sets a user's default meals to scan, the way
+`FOODAPP_TYPE_<SLUG>` does for booking. The server's reply is decoded to a clear
+outcome:
+
+| Server `data` | Meaning |
+| --- | --- |
+| `success` | collected now |
+| `warn` | already collected (safe to re-run) |
+| `error` | **token not assigned** — book the meal first, then scan |
+| `scannerDisabled` / `mealDisabled` | the provider has scanning switched off |
+| `invalidQR` | the server rejected the value |
+
+> **The provider gates this.** A scan only takes effect while the provider has the
+> scan session **and** that meal enabled (`GET /food-mapping/scan-session/status`,
+> `…/meal-scan-config`). Outside that window every scan returns `scannerDisabled`
+> and nothing changes — the same gate the physical camera faces. Because that
+> window is provider-controlled and its timing is not exposed, `/api/scan` is not
+> wired into the generated cron list; trigger it from the personal link, or from
+> an external scheduler timed to when scanning is actually open.
+
 ## Extra query flags
 
 | Flag | Effect |
