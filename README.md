@@ -67,7 +67,8 @@ Add `--write` to put that list into `vercel.json`.
 | --- | --- |
 | `CRON_SECRET` | admin/cron secret. A request carrying **this** runs **every** user, unless `?user=` / `?except=` narrows it. Vercel Cron sends it automatically. |
 | `FOODAPP_AT` | the default IST booking time for anybody with no `FOODAPP_AT_<SLUG>`. Default `08:00`. |
-| `SKIP_WEEKENDS` | set to `false` to also submit on Sat/Sun. Default: skip. |
+| `FOODAPP_OFF_DAYS` | IST days that are never booked. Default `Sat,Sun`. Set `Sun` when Saturday is a working day, or `none` to book all seven. |
+| `SKIP_WEEKENDS` | legacy: `false` means never skip a day. Equivalent to `FOODAPP_OFF_DAYS=none`. |
 | `FOODAPP_BASE_URL` | only used by `npm run genkey`, to print the right host in the links. |
 
 ## Choosing meals — `type`
@@ -177,10 +178,15 @@ IST and the generator does the −5:30 for you. For reference:
 | 09:30 | 04:00 | `0 4 * * *` |
 | 10:00 | 04:30 | `30 4 * * *` |
 
-Weekends are skipped in code (see `SKIP_WEEKENDS`) rather than in the cron
+Days off are handled in code (see `FOODAPP_OFF_DAYS`) rather than in the cron
 expression. A weekdays-only schedule would deploy fine, but the in-code check
-also covers people opening their personal link on a Saturday, and it can be
-turned off with an environment variable instead of a redeploy.
+also covers people opening their personal link on a day off, and it applies to
+`/api/scan` too, so booking and collecting always follow the same calendar.
+
+`FOODAPP_OFF_DAYS` takes three-letter or full day names, comma separated and
+case-insensitive — `Sun`, `Sat,Sun`, `sunday`. **This project is set to `Sun`,
+so Saturday is a working day and only Sunday is skipped.** Changing it needs a
+redeploy, since environment variables bind to a deployment.
 
 ### What your plan allows
 

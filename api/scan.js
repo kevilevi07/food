@@ -30,7 +30,8 @@
  *
  * Global:
  *   CRON_SECRET    a request carrying this scans EVERY user
- *   SKIP_WEEKENDS  optional, "false" to also scan on Sat/Sun
+ *   FOODAPP_OFF_DAYS optional, IST days never scanned. Default "Sat,Sun"
+ *   SKIP_WEEKENDS  optional, "false" to also scan on days off
  *
  *   https://foodauto.vercel.app/api/scan?key=<their key>
  *   https://foodauto.vercel.app/api/scan?key=<their key>&type=2   (lunch only)
@@ -363,6 +364,21 @@ async function runUser(user, params, dryRun, date) {
 // Handler
 // ---------------------------------------------------------------------------
 
+// Which IST weekdays never scan - same rule as /api/foodcount, so booking and
+// collecting always follow the same calendar. Default Sat+Sun; FOODAPP_OFF_DAYS
+// overrides ("Sun" when Saturday is a working day, "none" for all seven).
+const NO_OFF_DAYS = new Set(['none', 'off', 'no', '-']);
+
+function offDays() {
+  if (process.env.SKIP_WEEKENDS === 'false') return new Set();
+
+  const raw = (process.env.FOODAPP_OFF_DAYS || 'Sat,Sun').trim();
+
+  if (!raw || NO_OFF_DAYS.has(raw.toLowerCase())) return new Set();
+
+  return new Set(raw.split(/[,+\s]+/).filter(Boolean).map((day) => day.slice(0, 3).toLowerCase()));
+}
+
 export default async function handler(req, res) {
   const params = new URL(req.url, 'http://localhost').searchParams;
   const dryRun = params.has('dry-run');
@@ -406,11 +422,12 @@ export default async function handler(req, res) {
   }
 
   const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(new Date());
-  const skipWeekends = process.env.SKIP_WEEKENDS !== 'false';
+  const off = offDays();
 
-  if (skipWeekends && (weekday === 'Sat' || weekday === 'Sun') && !params.has('force')) {
-    const line = `Skipping ${matched.map((u) => u.slug).join(', ')} - it is ${weekday} in IST.`
-               + ' Add &force to override, or set SKIP_WEEKENDS=false.';
+  if (off.has(weekday.toLowerCase()) && !params.has('force')) {
+    const line = `Skipping ${matched.map((u) => u.slug).join(', ')} - it is ${weekday} in IST`
+               + ` and the days off are ${[...off].join(', ')}.`
+               + ' Add &force to override, or change FOODAPP_OFF_DAYS.';
     console.log(line);
     const body = { ok: true, skipped: true, scope, log: [line] };
     if (problems.length) body.problems = problems;

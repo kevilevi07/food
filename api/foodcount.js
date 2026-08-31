@@ -50,7 +50,9 @@
  * Global environment variables:
  *   CRON_SECRET    admin/cron secret - a request carrying this runs EVERY user
  *   FOODAPP_AT     optional, the default IST booking time   default: 08:00
- *   SKIP_WEEKENDS  optional, "false" to also submit on Sat/Sun
+ *   FOODAPP_OFF_DAYS optional, IST days never booked. Default "Sat,Sun";
+ *                  set "Sun" when Saturday is a working day, "none" for all seven
+ *   SKIP_WEEKENDS  optional, "false" to also submit on days off
  *
  * Legacy single-user vars still work and register as the user "DEFAULT":
  *   FOODAPP_USER / FOODAPP_PASS   (+ CRON_SECRET as its key)
@@ -69,6 +71,9 @@ const CONFIG = {
 
 const FOOD_ID = { breakfast: 1, lunch: 2, dinner: 3 };
 const MEAL_BY_ID = Object.fromEntries(Object.entries(FOOD_ID).map(([meal, id]) => [id, meal]));
+
+// Values of FOODAPP_OFF_DAYS that mean "work every day".
+const NO_OFF_DAYS = new Set(['none', 'off', 'no', '-']);
 
 // ---------------------------------------------------------------------------
 // The user registry, read out of the environment on every cold start.
@@ -274,6 +279,21 @@ function selectUsers(auth, users, params) {
   const unknown = [...new Set([...only, ...except])].filter((slug) => !known.has(slug));
 
   return { matched, scope: only.length ? 'selected' : 'all-except', only, except, unknown };
+}
+
+/**
+ * Which IST weekdays never book. Default Sat+Sun; FOODAPP_OFF_DAYS overrides it
+ * - set it to "Sun" when Saturday is a working day, or "none" for all seven.
+ * SKIP_WEEKENDS=false still means "never skip", as it always did.
+ */
+function offDays() {
+  if (process.env.SKIP_WEEKENDS === 'false') return new Set();
+
+  const raw = (process.env.FOODAPP_OFF_DAYS || 'Sat,Sun').trim();
+
+  if (!raw || NO_OFF_DAYS.has(raw.toLowerCase())) return new Set();
+
+  return new Set(raw.split(/[,+\s]+/).filter(Boolean).map((day) => day.slice(0, 3).toLowerCase()));
 }
 
 // ---------------------------------------------------------------------------
@@ -529,18 +549,19 @@ export default async function handler(req, res) {
   }
 
   // The weekday check lives here rather than in the cron expression: it then
-  // also covers somebody opening their personal link on a Saturday, and it can
-  // be turned off with SKIP_WEEKENDS without a redeploy.
+  // also covers somebody opening their personal link on a day off, and the days
+  // can be changed with FOODAPP_OFF_DAYS instead of editing the schedule.
   const weekday = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
     weekday: 'short',
   }).format(new Date());
 
-  const skipWeekends = process.env.SKIP_WEEKENDS !== 'false';
+  const off = offDays();
 
-  if (skipWeekends && (weekday === 'Sat' || weekday === 'Sun') && !params.has('force')) {
+  if (off.has(weekday.toLowerCase()) && !params.has('force')) {
     const line = `Skipping ${matched.map((user) => user.slug).join(', ')} - it is ${weekday}`
-               + ' in IST. Add &force to override, or set SKIP_WEEKENDS=false.';
+               + ` in IST and the days off are ${[...off].join(', ')}.`
+               + ' Add &force to override, or change FOODAPP_OFF_DAYS.';
     console.log(line);
 
     const skippedBody = { ok: true, skipped: true, scope, log: [line] };
