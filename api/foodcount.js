@@ -31,10 +31,12 @@
  *   Combine with commas: type=1,2 . Names work too: type=lunch .
  *   Meals left out of `type` are explicitly set to "no".
  *
- * Nothing here is scheduled by hand. vercel.mjs runs at build time and turns
- * those FOODAPP_AT_<SLUG> variables into the project's cron list (the arithmetic
- * lives in scripts/crons.mjs; "npm run crons" prints what the next deployment
- * will schedule). The entries it writes call this endpoint like so:
+ * The schedule lives in vercel.json, which Vercel reads before the build - so it
+ * has to be a committed file, not something generated while building. Rather
+ * than editing it by hand, run "npm run crons -- --write": that turns the
+ * FOODAPP_AT_<SLUG> variables into the cron list and writes it there (the
+ * arithmetic lives in scripts/crons.mjs). The entries it writes call this
+ * endpoint like so:
  *
  *   { "path": "/api/foodcount?user=RAVI,SHERLOCK", "schedule": "30 2 * * *" }
  *   { "path": "/api/foodcount?user=SRI",           "schedule": "0 4 * * *"  }

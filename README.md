@@ -3,7 +3,7 @@
 One Vercel serverless function that books the daily food count for **any number of
 people**. Each person gets their own secret key, their own link, and their own
 booking time — all of it defined by environment variables, so **adding somebody
-never means editing a file**.
+is a set of environment variables, not a code change**.
 
 ```
 https://foodauto.vercel.app/api/foodcount?key=foodcount-9f3a2b7c4e1d8a6f
@@ -35,25 +35,31 @@ npm run genkey SRI 09:30
 # 3. redeploy - env var changes only take effect on a new deployment
 ```
 
+They are now booked at the shared 08:00 IST cron, which runs every registered
+user. Only if they want their *own* time (`FOODAPP_AT_<SLUG>`) does the schedule
+itself have to change - see [How the cron times work](#how-the-cron-times-work).
+
 That is the whole procedure whether it is your second user or your fiftieth.
 Removing somebody is the same in reverse; rotating a key is editing
 `FOODAPP_KEY_<SLUG>`; moving their booking time is editing `FOODAPP_AT_<SLUG>`.
 
-Before deploying, check what the next deployment will schedule:
+Check what that schedule would be, without changing anything:
 
 ```bash
 $ npm run crons
-3 user(s), default 08:00 IST:
+3 user(s), default 08:00:
 
-  RAVI         08:00 IST
-  SHERLOCK     08:00 IST
-  SRI          09:30 IST
+  RAVI         08:00
+  SHERLOCK     08:00
+  SRI          09:30
 
 2 cron entries:
 
   30 2 * * *   /api/foodcount?user=RAVI,SHERLOCK
   0 4 * * *    /api/foodcount?user=SRI
 ```
+
+Add `--write` to put that list into `vercel.json`.
 
 ### Global variables
 
@@ -83,24 +89,53 @@ breakfast no, dinner no* — re-running the link is always safe and idempotent.
 
 ## How the cron times work
 
-Vercel needs its cron list in the project config, and that config is normally a
-static `vercel.json`. This project uses **`vercel.mjs`** instead, which Vercel
-*executes at build time* — so the cron list is generated from the environment
-variables rather than written by hand:
+The schedule lives in **`vercel.json`**, at the root of this repo:
 
-```js
-// vercel.mjs
-import { buildCrons } from './scripts/crons.mjs';
-
-export const config = {
-  functions: { 'api/foodcount.js': { maxDuration: 60 } },
-  crons: buildCrons(process.env),
-};
+```json
+{
+  "functions": { "api/foodcount.js": { "maxDuration": 60 } },
+  "crons": [
+    { "path": "/api/foodcount", "schedule": "30 2 * * *" }
+  ]
+}
 ```
 
+`30 2 * * *` is **08:00 IST** (Vercel schedules in UTC, always). That one entry
+carries `CRON_SECRET`, and a `CRON_SECRET` request with no `?user=` runs **every
+registered user** — so adding a colleague needs no schedule change at all.
+
+Vercel reads `vercel.json` *before* it builds, so the cron list has to be a real,
+committed file: code that runs during the build is already too late.
+
+**For the shared 08:00 time you never touch this file.** The single entry above
+has no `?user=`, and a `CRON_SECRET` request without one runs every registered
+user — so a new colleague is environment variables and nothing else.
+
+You only regenerate it to give somebody their **own** time. The generator reads
+the variables from the shell it runs in, so they have to actually be visible
+there:
+
+```bash
+vercel env pull .env.local --environment=production   # NOT the default (development)
+node --env-file=.env.local scripts/crons.mjs --write
+git add vercel.json && git commit -m schedule && git push
+```
+
+> **`vercel env pull` cannot read Sensitive variables.** It writes the literal
+> string `[SENSITIVE]` instead of the value, and every `FOODAPP_*` in this
+> project is currently marked Sensitive. A schedule generated from those
+> placeholders would book everybody at the default time, so `--write` detects
+> them and refuses rather than writing a wrong schedule. To generate per-user
+> times you must either unmark `FOODAPP_USER_*` and `FOODAPP_AT_*` as Sensitive
+> (they are an email and a clock time — `FOODAPP_PASS_*` and `FOODAPP_KEY_*` are
+> never read here and should stay Sensitive), or set those two in your shell by
+> hand. `--write` also refuses to *shrink* an existing schedule without
+> `--force`, because losing entries almost always means the environment was
+> invisible, not that you meant to unschedule anyone.
+
 `buildCrons` reads every `FOODAPP_USER_<SLUG>`, looks up that person's
-`FOODAPP_AT_<SLUG>`, converts IST to the UTC that Vercel schedules in, and
-**groups everybody who shares a time into one entry**:
+`FOODAPP_AT_<SLUG>`, converts IST to UTC, and **groups everybody who shares a
+time into one entry**:
 
 ```json
 { "path": "/api/foodcount?user=RAVI,SHERLOCK", "schedule": "30 2 * * *" }
@@ -108,15 +143,26 @@ export const config = {
 ```
 
 So ten colleagues at 08:00 cost one of the project's 100 cron entries, not ten.
-A bad `FOODAPP_AT_<SLUG>` fails the build rather than shipping a wrong schedule,
-and a build that cannot see the user variables at all falls back to a single
-`/api/foodcount` entry that runs everybody — the cron never silently vanishes.
+Drop `--write` to preview without touching the file. A `FOODAPP_AT_<SLUG>` it
+cannot parse books that person at the default time and prints a warning, so a
+typo never produces a silently wrong schedule.
 
-> **Do not mark `FOODAPP_USER_*` or `FOODAPP_AT_*` as Sensitive** in Vercel.
-> Sensitive variables are hidden from the build, and the generator would fall
-> back to booking everyone at the default time. `FOODAPP_PASS_*` and
-> `FOODAPP_KEY_*` are never read at build time, so those are free to be
-> sensitive.
+> **Why not generate it at build time?** An earlier version of this repo used a
+> `vercel.mjs` that called `buildCrons(process.env)` at build time. Vercel does
+> support that file name, but its output is invisible — nothing in the repo, the
+> diff, or a failed build tells you which crons were registered, and when none
+> were, the app simply stopped booking. `vercel.json` is checked in, reviewable,
+> and shows up in the deployment's **Cron Jobs** tab.
+
+## When the cron does not fire
+
+| Check | Why |
+| --- | --- |
+| `CRON_SECRET` is set in **Production** | Vercel only sends `Authorization: Bearer …` when this exists. Without it every cron run answers `401` and books nobody. |
+| The deployment is the **production** one | Cron jobs only run on production deployments, never on previews. |
+| The deployment summary lists the job | Open the deployment → **Cron Jobs**. If the list is empty, `vercel.json` never reached the deployment. |
+| `vercel.json` is committed | An uncommitted or `.gitignore`d config schedules nothing. |
+| The run itself | Hit `/api/foodcount?key=<CRON_SECRET>` by hand — it does exactly what the cron does, and answers with the per-user log. |
 
 ### Times are UTC
 
@@ -254,12 +300,11 @@ cron log keeps the per-user detail. A run where **every** user failed returns
 key, or a `?user=` slug that does not exist) are reported in a `problems` array
 instead of silently disappearing.
 
-## Going back to a static config
+## Pinning the schedule by hand
 
 Nothing in `api/foodcount.js` depends on the generator — it only ever sees
-`?user=` / `?except=` on an ordinary request. To pin the schedule by hand,
-delete `vercel.mjs` and write the equivalent `vercel.json` (Vercel reads one
-config file, not both):
+`?user=` / `?except=` on an ordinary request. `vercel.json` is an ordinary file,
+so editing the array directly is always an option:
 
 ```json
 {
@@ -271,7 +316,8 @@ config file, not both):
 }
 ```
 
-`npm run crons` prints exactly what belongs in that array.
+`npm run crons` prints exactly what belongs in that array; `npm run crons --
+--write` puts it there for you, leaving `functions` and anything else untouched.
 
 ## Backwards compatibility
 

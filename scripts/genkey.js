@@ -8,8 +8,8 @@
  *   node scripts/genkey.js SRI 09:30   -> the same, booking SRI at 09:30 IST
  *                                         instead of the shared default time
  *
- * There is no config file to edit afterwards: the cron list is generated from
- * these variables at build time (see scripts/crons.mjs).
+ * Afterwards, regenerate the schedule from those variables and commit it:
+ *   npm run crons -- --write      (see scripts/crons.mjs)
  */
 
 import { randomBytes } from 'node:crypto';
@@ -54,8 +54,11 @@ if (at) {
   console.log('                                                  # at their own time, "none" for no cron');
 }
 
-console.log('\nThen redeploy. There is no config file to edit - the cron list is built from');
-console.log('these variables. Check what the next deployment will schedule:');
+console.log('\nThen regenerate the schedule from those variables, commit it, and redeploy:');
+console.log('  vercel env pull .env.local --environment=production');
+console.log('  node --env-file=.env.local scripts/crons.mjs --write');
+console.log('  git add vercel.json && git commit -m schedule && git push');
+console.log('\nOr preview it first, without writing anything:');
 console.log('  npm run crons');
 console.log('\nTheir personal link, usable any time regardless of the cron:');
 console.log(`  ${base}/api/foodcount?key=${key}`);
